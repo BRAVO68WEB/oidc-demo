@@ -1,10 +1,11 @@
 import { Hono } from "hono";
-import { SecretsManager } from "./libs/secrets";
-import { pemToJwk } from "./utils/jwk_converter";
-
-const CryptoKeys = SecretsManager.init();
+import { DBInit } from "./db";
+import router from "./router";
+import { showRoutes } from "hono/dev";
 
 const app = new Hono();
+
+DBInit();
 
 app.get("/", async (ctx) => {
     return ctx.json({
@@ -12,15 +13,9 @@ app.get("/", async (ctx) => {
     })
 });
 
-app.get("/.well-known/jwks.json", async (ctx) => {
-    const jwks = await pemToJwk(CryptoKeys.publicKey);
+app.route("/", router);
 
-    return ctx.json({
-        keys: [
-            jwks
-        ]
-    })
-});
+showRoutes(app);
 
 export default {
     port: 4000,
