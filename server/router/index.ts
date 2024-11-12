@@ -4,8 +4,10 @@ import { SecretsManager } from "../libs/secrets";
 import { db } from "../db";
 import crypto from "node:crypto";
 import { v4 as uuid } from "uuid";
+import { LoginPageController } from "./render";
 
 const app = new Hono();
+  
 
 const CryptoKeys = SecretsManager.init();
 const BASE_URL = "http://localhost:4000/oidc";
@@ -23,7 +25,7 @@ app.get("/oidc/.well-known/jwks.json", async (ctx) => {
 
 app.get("/oidc/.well-known/openid-configuration", async (ctx) => {
     return ctx.json({
-        issuer: BASE_URL + "/",
+        issuer: BASE_URL,
         authorization_endpoint: BASE_URL + "/authorize",
         token_endpoint: BASE_URL + "/token",
         userinfo_endpoint: BASE_URL + "/userinfo",
@@ -94,6 +96,8 @@ app.get("/oidc/.well-known/openid-configuration", async (ctx) => {
     })
 });
 
+app.get("/oidc/authorize", LoginPageController)
+
 app.post("/oidc/authorize", async (ctx) => {
     const {
         client_id,
@@ -103,7 +107,15 @@ app.post("/oidc/authorize", async (ctx) => {
         state,
         email,
         password
-    } = await ctx.req.json()
+    } : {
+        client_id: string,
+        redirect_uri: string,
+        response_type: string,
+        scope: string,
+        state: string,
+        email: string,
+        password: string
+    } = await ctx.req.parseBody();
 
     if (!client_id || !redirect_uri || !response_type || !scope) {
         return ctx.json({
@@ -148,7 +160,26 @@ app.post("/oidc/authorize", async (ctx) => {
     }
 
     // Check if scope is valid
-    const scopes = scope.split(" ");
+    let scopes;
+    let scopesSpace = scope.split(" ");
+    let scopesComma = scope.split(",");
+    let scopesPipe = scope.split("+");
+    
+    if (scopesSpace.length > 1) {
+        scopes = scopesSpace;
+    }
+    else if (scopesComma.length > 1) {
+        scopes = scopesComma;
+    }
+    else if (scopesPipe.length > 1) {
+        scopes = scopesPipe;
+    }
+    else {
+        scopes = [scope];
+    }
+
+    console.log(scopes)
+
     const validScopes = db
         .prepare("SELECT * FROM scopes WHERE client_id = ?")
         .all(client_id) as {
@@ -214,14 +245,17 @@ app.post("/oidc/authorize", async (ctx) => {
         stmt.run(uuid(), code, user.id, client_id, scopes.join(" "), "", created_at, created_at)
     }
 
-    return ctx.json({
-        code,
-        state,
-    })
+    return ctx.redirect(redirect_uri + `?code=${code}&state=${state}`)
 });
 
 app.post("/oidc/token", async (ctx) => {
-    const { client_id, client_secret, grant_type, code, redirect_uri } = await ctx.req.json();
+    const { client_id, client_secret, grant_type, code, redirect_uri } : {
+        client_id: string,
+        client_secret: string,
+        grant_type: string,
+        code: string,
+        redirect_uri: string
+    } = await ctx.req.parseBody();
 
     if (!client_id || !client_secret || !grant_type || !code || !redirect_uri) {
         return ctx.json({
